@@ -1,0 +1,11 @@
+{
+  "version": "mockdb_v0.1",
+  "rates_to_twd": {"USD": 32.0, "EUR": 35.0, "JPY": 0.21, "TWD": 1.0},
+  "orders": {
+    "ORD-123456": {"status": "已出貨", "updated": "2026-11-05", "carrier": "黑貓宅急便"},
+    "ORD-654321": {"status": "處理中", "updated": "2026-11-06", "carrier": null}
+  },
+  "failing_orders": {
+    "ORD-999999": "SERVICE_UNAVAILABLE：物流系統暫時無法連線，請稍後再試"
+  }
+}

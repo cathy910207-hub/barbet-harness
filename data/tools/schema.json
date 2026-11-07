@@ -1,0 +1,43 @@
+{
+  "version": "tools_v0.1",
+  "tools": [
+    {
+      "name": "calculator",
+      "description": "計算四則運算算式，支援 + - * / 與括號",
+      "computes": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "expression": {"type": "string", "description": "算式，例如 1250*0.8-30"}
+        },
+        "required": ["expression"]
+      }
+    },
+    {
+      "name": "convert_currency",
+      "description": "依固定匯率換算貨幣金額",
+      "computes": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {"type": "number", "description": "要換算的金額"},
+          "from_currency": {"type": "string", "enum": ["USD", "EUR", "JPY", "TWD"], "description": "原幣別代碼"},
+          "to_currency": {"type": "string", "enum": ["USD", "EUR", "JPY", "TWD"], "description": "目標幣別代碼"}
+        },
+        "required": ["amount", "from_currency", "to_currency"]
+      }
+    },
+    {
+      "name": "get_order_status",
+      "description": "查詢訂單目前的物流狀態",
+      "computes": false,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "pattern": "^ORD-\\d{6}$", "description": "訂單編號，格式為 ORD- 加 6 位數字"}
+        },
+        "required": ["order_id"]
+      }
+    }
+  ]
+}

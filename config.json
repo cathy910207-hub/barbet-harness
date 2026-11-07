@@ -1,0 +1,56 @@
+{
+  "experiment_name": "pilot_10",
+
+  "model": {
+    "type": "dummy",
+    "label": "DUMMY（假模型，非 Barbet，僅供測試流程）",
+    "checkpoint": null,
+    "revision": null,
+    "device": "cpu",
+    "dummy_script": null
+  },
+
+  "tokenizer": {
+    "name_or_path": null,
+    "_note": "填入 OpenFormosa/PangolinTokenizer 或主線指定的 tokenizer；未填時以字元數近似 token 數，報告中會標示"
+  },
+
+  "renderer": {
+    "name": "simple_v0_TEMP",
+    "_note": "暫用的 prompt 格式，取得主線 renderer 後必須替換",
+    "few_shot": []
+  },
+
+  "decoding": {
+    "do_sample": false,
+    "temperature": null,
+    "top_p": null,
+    "max_new_tokens": 256,
+    "stop": ["</answer>", "</tool_call>", "</ask>"]
+  },
+
+  "budget": {
+    "max_total_tokens_per_task": 6000
+  },
+
+  "retrieval": {
+    "top_k": 3,
+    "position": "default",
+    "num_distractors": 0,
+    "_note": "position 可為 default / start / middle / end；num_distractors 會加入無關段落"
+  },
+
+  "c_group": {
+    "max_corrections": 2,
+    "extra_tools": ["calculator"]
+  },
+
+  "paths": {
+    "tasks": "data/tasks.jsonl",
+    "docs": "data/docs",
+    "skills": "data/skills",
+    "tool_schema": "data/tools/schema.json",
+    "mock_db": "data/tools/mock_db.json",
+    "runs": "runs"
+  }
+}

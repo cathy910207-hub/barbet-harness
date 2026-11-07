@@ -1,0 +1,7 @@
+runs/*
+!runs/.gitkeep
+__pycache__/
+*.pyc
+config_start.json
+config_middle.json
+config_end.json

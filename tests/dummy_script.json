@@ -1,0 +1,57 @@
+{
+  "_說明": "假模型的劇本，只用來確認 harness 各條路徑都能正確運作（包含修正成功與修正後變錯）。不是 Barbet 的結果。",
+  "doc_001": {
+    "A": ["<answer>運費是 100 元。</answer>"],
+    "B": ["<answer>訂單未滿 1,000 元，運費是 80 元 [來源: doc_shipping#p2]</answer>"],
+    "C": ["<answer>運費是 80 元 [來源: doc_shipping#p9]</answer>",
+          "<answer>訂單未滿 1,000 元，運費是 80 元 [來源: doc_shipping#p2]</answer>"]
+  },
+  "doc_002": {
+    "B": ["<answer>到貨後 7 天內可以退貨 [來源: doc_returns#p1]</answer>"],
+    "C": ["<answer>文件說法不一致：退貨政策寫 7 天 [來源: doc_returns#p1]，舊版 FAQ 寫 10 天 [來源: doc_faq_old#p1]，建議以最新政策為準並向客服確認。</answer>"]
+  },
+  "doc_003": {
+    "A": ["<answer>可以使用 LINE Pay [來源: doc_payment#p1]</answer>"],
+    "B": ["<answer>參考文件中沒有提到 LINE Pay 付款的相關資訊，我找不到答案。</answer>"],
+    "C": ["<answer>參考文件中沒有提到 LINE Pay 付款的相關資訊，我找不到答案。</answer>"]
+  },
+  "rule_001": {
+    "B": ["<answer>退款金額：1125 元</answer>"],
+    "C": ["<tool_call>{\"name\": \"calculator\", \"arguments\": {\"expression\": \"1250*0.9\"}}</tool_call>",
+          "<answer>退款金額：1125 元</answer>"]
+  },
+  "rule_002": {
+    "B": ["<answer>退款金額：1125 元</answer>"],
+    "C": ["<tool_call>{\"name\": \"calculator\", \"arguments\": {\"expression\": \"1250*0.8-30\"}}</tool_call>",
+          "<answer>退款金額：970 元</answer>"]
+  },
+  "tool_001": {
+    "A": ["<tool_call>{\"name\": \"convert_currency\", \"arguments\": {\"amount\": \"100\", \"from_currency\": \"USD\", \"to_currency\": \"TWD\"}}</tool_call>"],
+    "B": ["<tool_call>{\"name\": \"convert_currency\", \"arguments\": {\"amount\": 100, \"from_currency\": \"USD\", \"to_currency\": \"TWD\"}}</tool_call>"],
+    "C": ["<tool_call>{\"name\": \"convert_currency\", \"arguments\": {\"amount\": 100, \"from_currency\": \"USD\", \"to_currency\": \"TWD\"}}</tool_call>",
+          "<answer>100 美元約可換成 3200 台幣。</answer>"]
+  },
+  "tool_002": {
+    "A": ["<tool_call>{\"name\": \"book_hsr_ticket\", \"arguments\": {\"to\": \"高雄\"}}</tool_call>"],
+    "B": ["<answer>抱歉，目前沒有可以訂高鐵票的工具，無法幫您處理。</answer>"],
+    "C": ["<answer>抱歉，目前沒有可以訂高鐵票的工具，無法幫您處理。</answer>"]
+  },
+  "tool_003": {
+    "A": ["<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-000001\"}}</tool_call>"],
+    "B": ["<ask>請提供您的訂單編號，我才能幫您查詢。</ask>"],
+    "C": ["<ask>請提供您的訂單編號，我才能幫您查詢。</ask>"]
+  },
+  "fix_001": {
+    "B": ["<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD123456\"}}</tool_call>"],
+    "C": ["<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD123456\"}}</tool_call>",
+          "<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-123456\"}}</tool_call>",
+          "<answer>您的訂單 ORD-123456 已出貨（黑貓宅急便，2026-11-05 更新）。</answer>"]
+  },
+  "fix_002": {
+    "B": ["<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-999999\"}}</tool_call>"],
+    "C": ["<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-999999\"}}</tool_call>",
+          "<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-99999\"}}</tool_call>",
+          "<tool_call>{\"name\": \"get_order_status\", \"arguments\": {\"order_id\": \"ORD-654321\"}}</tool_call>",
+          "<answer>您的訂單目前處理中。</answer>"]
+  }
+}
