@@ -1,0 +1,50 @@
+{
+  "verifier": "verify_v0.2",
+  "generated_at": "2026-11-12T14:40:39+08:00",
+  "counts": {
+    "candidates": 10,
+    "rejected": 0,
+    "by_task_family": {
+      "doc_retrieval": 3,
+      "interpret_fix": 2,
+      "rule_following": 2,
+      "tool_selection": 3
+    }
+  },
+  "sources": [
+    {
+      "type": "handwritten",
+      "name": null,
+      "revision": null,
+      "license": "本專案原創",
+      "generation_method": "人工設計情境，由 AI 起草題目與答案，答案須經 verify.py 以程式獨立驗證",
+      "created_by": "Claude（AI 草稿）",
+      "count": 10
+    }
+  ],
+  "planned_sources": [
+    {
+      "name": "allenai/tulu-3-sft-personas-instruction-following",
+      "revision": "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e",
+      "license": "ODC-BY",
+      "status": "主線已選定，尚未匯入",
+      "intended_use": "規則執行（rule_following）題目來源；參考回答不作為標準答案"
+    }
+  ],
+  "orphan_corrections": [],
+  "file_hashes": {
+    "inputs": {
+      "tasks_draft": "7072445563c2",
+      "corrections": "b9a1c6aabbb3",
+      "docs": "cc372c0f9483",
+      "skills": "6f9e69f46120",
+      "tool_schema": "ff507a1c03b8",
+      "mock_db": "d1d567f56935",
+      "verify.py": "6ee259d0405e"
+    },
+    "outputs": {
+      "candidates": "f867afbb9bf4",
+      "rejected": "e3b0c44298fc"
+    }
+  }
+}

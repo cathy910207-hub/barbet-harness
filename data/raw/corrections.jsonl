@@ -1,0 +1,3 @@
+{"correction_id": "corr_001", "task_id": "doc_001", "path": "answer.answer_contains", "old": ["80"], "new": ["80 元"], "reason": "「80」是「800」的子字串，模型回答「運費 800 元」會被誤判為正確；改為比對「80 元」（比對時忽略空白與千分位逗號）", "author": "Claude（AI 草稿）", "date": "2026-11-12"}
+{"correction_id": "corr_002", "task_id": "doc_002", "path": "answer.values", "old": null, "new": ["7 天", "10 天"], "reason": "原本只檢查回答中有沒有「矛盾」「不一致」等關鍵字，太寬鬆；新增條件：必須同時寫出兩份文件各自的天數", "author": "Claude（AI 草稿）", "date": "2026-11-12"}
+{"correction_id": "corr_003", "task_id": "doc_003", "path": "answer.forbidden_claims", "old": null, "new": ["可以使用", "可以用", "支援", "接受"], "reason": "原本只檢查回答中有沒有「找不到」等字，模型可能同時說找不到又給出肯定答案；新增禁止出現的肯定說法", "author": "Claude（AI 草稿）", "date": "2026-11-12"}

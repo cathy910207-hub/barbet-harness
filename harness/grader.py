@@ -1,4 +1,6 @@
-"""評分器：唯一會讀取 gold（標準答案）的地方。
+"""評分器：唯一會讀取 answer（標準答案）的地方。
+
+⚠️ 這是本 harness 的內部評分，用來比較 A/B/C 三組，不是主線的正式評分規則。
 
 評分結果只寫進 trace 給人分析，絕不回饋給模型。
 成功標準：工具名稱、參數值、型別與最終結果全部正確。
@@ -14,6 +16,13 @@ def normalize(s):
     return re.sub(r"(?<=\d),(?=\d{3})", "", s)
 
 
+def contains_value(text, value):
+    """忽略空白與千分位逗號後比對；數字前面不能緊接著其他數字（「80 元」不會比對到「180 元」或「800 元」）。"""
+    t, v = normalize(text), normalize(value)
+    pattern = (r"(?<!\d)" if v[:1].isdigit() else "") + re.escape(v) + (r"(?!\d)" if v[-1:].isdigit() else "")
+    return re.search(pattern, t) is not None
+
+
 def _values_equal(a, b):
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
         return abs(a - b) < 1e-6
@@ -22,7 +31,7 @@ def _values_equal(a, b):
 
 def grade_call(task, call, toolbox):
     """只評一次工具呼叫是否正確（名稱＋參數＋型別）。回傳 (ok, error_type)。"""
-    gold = task["gold"]
+    gold = task["answer"]
     if call is None:
         return False, "no_tool_call"
     name = call.get("name")
@@ -46,7 +55,7 @@ def grade(task, outcome, toolbox, valid_chunk_ids):
     """outcome：runner 整理出的最終狀態
        {tool_calls: [...合法 JSON 的呼叫], answer, citations, ask, executed: [...]}
     回傳 {success, error_type}"""
-    cat, gold = task["category"], task["gold"]
+    cat, gold = task["task_family"], task["answer"]
     exp = gold["expect"]
     ans = outcome.get("answer")
     calls = outcome.get("tool_calls", [])
@@ -61,12 +70,16 @@ def grade(task, outcome, toolbox, valid_chunk_ids):
         if exp == "not_found":
             if cites:
                 return _r(False, "fabricated_source")
+            if any(w in ans for w in gold.get("forbidden_claims", [])):
+                return _r(False, "hallucinated_answer")
             return _r(any(w in ans for w in NOT_FOUND_WORDS), "hallucinated_answer")
         if exp == "contradiction":
             if not any(w in ans for w in CONTRA_WORDS):
                 return _r(False, "missed_contradiction")
+            if not all(contains_value(ans, v) for v in gold.get("values", [])):
+                return _r(False, "contradiction_values_missing")
             return _r(set(gold["sources"]) <= set(cites), "wrong_source")
-        if not all(x in ans for x in gold["answer_contains"]):
+        if not all(contains_value(ans, x) for x in gold["answer_contains"]):
             return _r(False, "wrong_answer")
         return _r(set(gold["sources"]) <= set(cites), "wrong_source")
 
@@ -117,7 +130,7 @@ def grade(task, outcome, toolbox, valid_chunk_ids):
 
 def grade_attempt(task, parsed, toolbox, valid_chunk_ids):
     """單一次輸出的局部正確性，用來找「修正後反而變錯」的案例。"""
-    cat, exp = task["category"], task["gold"]["expect"]
+    cat, exp = task["task_family"], task["answer"]["expect"]
     if cat in ("tool_selection", "interpret_fix") and exp in ("tool", "report_failure"):
         if parsed.get("tool_call"):
             return grade_call(task, parsed["tool_call"], toolbox)[0]

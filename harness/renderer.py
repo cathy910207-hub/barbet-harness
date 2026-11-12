@@ -41,7 +41,7 @@ class SimpleRenderer:
             parts.append("【可用工具】\n" + json.dumps(tool_specs, ensure_ascii=False, indent=1))
         else:
             parts.append("【可用工具】\n（目前沒有可用工具）")
-        parts.append(f"【使用者】\n{task_view['input']['query']}")
+        parts.append(f"【使用者】\n{task_view['question']}")
         for h in history:
             label = {"assistant": "助理", "tool_result": "工具結果", "feedback": "系統回饋"}[h["role"]]
             parts.append(f"【{label}】\n{h['content']}")

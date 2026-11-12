@@ -23,11 +23,14 @@ from .verifier import verify_answer
 import os
 
 
+PUBLIC_FIELDS = ("id", "task_family", "question", "context")
+
+
 def public_view(task):
-    """給模型看的題目：移除 gold。這是防止標準答案漏進 prompt 的結構性保護。"""
-    v = copy.deepcopy(task)
-    v.pop("gold", None)
-    return v
+    """給模型看的題目：只保留白名單欄位（題號、類型、題目、情境）。
+    answer、verification、constraints、revisions 等一律不會進到 prompt，
+    這是防止標準答案洩漏的結構性保護。"""
+    return copy.deepcopy({k: task[k] for k in PUBLIC_FIELDS if k in task})
 
 
 def make_renderer(cfg):
@@ -66,10 +69,11 @@ class Harness:
     # ---------- 1. 檢索 ----------
     def retrieve(self, view):
         rc = self.cfg["retrieval"]
-        skill = self.skills.get(view["input"].get("skill_id")) if view["input"].get("skill_id") else None
-        if view["category"] != "doc_retrieval":
+        ctx = view.get("context", {})
+        skill = self.skills.get(ctx.get("skill_id")) if ctx.get("skill_id") else None
+        if view["task_family"] != "doc_retrieval":
             return [], skill
-        hits = self.bm25.search(view["input"]["query"], top_k=rc["top_k"])
+        hits = self.bm25.search(view["question"], top_k=rc["top_k"])
         n_dis = rc.get("num_distractors", 0)
         if n_dis:
             hit_ids = {h["id"] for h in hits}
@@ -96,7 +100,7 @@ class Harness:
         max_corr = self.cfg["c_group"]["max_corrections"] if group == "C" else 0
 
         context, skill = ([], None) if group == "A" else self.retrieve(view)
-        tool_names = list(view["input"].get("tools", []))
+        tool_names = list(view.get("context", {}).get("tools", []))
         if group == "C":
             tool_names += [t for t in self.cfg["c_group"]["extra_tools"] if t not in tool_names]
         tool_specs = self.toolbox.describe(tool_names)
@@ -199,7 +203,7 @@ class Harness:
         attempt_ok = [grader.grade_attempt(task, s["parsed"], self.toolbox, self.chunk_ids) for s in steps]
 
         return {
-            "run_id": run_id, "task_id": task["id"], "category": task["category"], "tags": task.get("tags", []),
+            "run_id": run_id, "task_id": task["id"], "task_family": task["task_family"], "group_id": task.get("group_id"), "tags": task.get("tags", []),
             "group": group, "model_label": self.model.label, "is_barbet": self.model.is_barbet,
             "versions": self.versions, "decoding": dec,
             "retrieved": [{"id": c["id"], "score": c.get("score")} for c in context],

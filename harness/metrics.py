@@ -14,7 +14,7 @@ def summarize(run_dir):
     cats = list(CAT_ZH)
     by = defaultdict(list)
     for r in recs:
-        by[(r["group"], r["category"])].append(r)
+        by[(r["group"], r["task_family"])].append(r)
         by[(r["group"], "ALL")].append(r)
 
     def stat(rs):
@@ -116,7 +116,7 @@ def _markdown(s, groups, cats, fixed, regressed, recs):
 
 
 def _case(r):
-    lines = [f"**{r['task_id']}**（{CAT_ZH[r['category']]}，修正 {r['corrections_used']} 次，最終："
+    lines = [f"**{r['task_id']}**（{CAT_ZH[r['task_family']]}，修正 {r['corrections_used']} 次，最終："
              f"{'成功' if r['success'] else '失敗 ' + str(r['error_type'])}）\n"]
     for st in r["steps"]:
         out = st["output"].replace("\n", " ")

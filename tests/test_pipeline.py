@@ -19,14 +19,14 @@ def main():
     h = Harness(cfg, base_dir=BASE)
     out_dir, recs = h.run_all()
     summary, _ = summarize(out_dir)
-    tasks = {t["id"]: t for t in read_jsonl(os.path.join(BASE, "data/tasks.jsonl"))}
+    tasks = {t["id"]: t for t in read_jsonl(os.path.join(BASE, "data/candidates.jsonl"))}
     idx = {(r["task_id"], r["group"]): r for r in recs}
 
     # 1. 標準答案不會出現在 prompt 裡（結構上 public_view 移除 gold）
     for t in tasks.values():
-        assert "gold" not in public_view(t)
+        assert set(public_view(t)) <= {"id", "task_family", "question", "context"}
     for r in recs:
-        gold_blob = json.dumps(tasks[r["task_id"]]["gold"], ensure_ascii=False)
+        gold_blob = json.dumps(tasks[r["task_id"]]["answer"], ensure_ascii=False)
         for s in r["steps"]:
             assert gold_blob not in s["prompt"], f"{r['task_id']} 的 prompt 含有 gold"
             assert "answer_exact" not in s["prompt"] and "final_answer_contains" not in s["prompt"]
@@ -37,8 +37,9 @@ def main():
     assert idx[("rule_002", "B")]["skill_id"] == "skill_refund_v2"
 
     # 3. skill 替換：同一題、不同 skill，標準答案不同
-    assert tasks["rule_001"]["input"]["query"] == tasks["rule_002"]["input"]["query"]
-    assert tasks["rule_001"]["gold"] != tasks["rule_002"]["gold"]
+    assert tasks["rule_001"]["question"] == tasks["rule_002"]["question"]
+    assert tasks["rule_001"]["answer"] != tasks["rule_002"]["answer"]
+    assert tasks["rule_001"]["group_id"] == tasks["rule_002"]["group_id"]
     assert not idx[("rule_002", "B")]["success"]  # 劇本中 B 沿用舊規則 → 應判錯
 
     # 4. 各種必測情境的判定
@@ -63,7 +64,7 @@ def main():
         for s in r["steps"]:
             if s.get("runtime_error"):
                 msg = s["runtime_error"]["message"]
-                g = tasks[r["task_id"]]["gold"]
+                g = tasks[r["task_id"]]["answer"]
                 for v in (g.get("args") or {}).values():
                     assert str(v) not in msg or str(v) in s["output"], f"{r['task_id']} 回饋洩漏答案：{msg}"
 

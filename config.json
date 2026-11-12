@@ -46,7 +46,7 @@
   },
 
   "paths": {
-    "tasks": "data/tasks.jsonl",
+    "tasks": "data/candidates.jsonl",
     "docs": "data/docs",
     "skills": "data/skills",
     "tool_schema": "data/tools/schema.json",
