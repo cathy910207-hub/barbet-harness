@@ -41,12 +41,13 @@ def file_hash(path):
 
 
 def dir_hash(path):
-    """整個資料夾的版本：所有檔名＋內容一起算雜湊。任何一個檔案改了，版本就會變。"""
+    """整個資料夾（含子資料夾）的版本：所有檔名＋內容一起算雜湊。任何一個檔案改了，版本就會變。"""
     h = hashlib.sha256()
-    for name in sorted(os.listdir(path)):
-        full = os.path.join(path, name)
-        if os.path.isfile(full):
-            h.update(name.encode())
+    for root, dirs, files in os.walk(path):
+        dirs.sort()
+        for name in sorted(files):
+            full = os.path.join(root, name)
+            h.update(os.path.relpath(full, path).replace(os.sep, "/").encode())
             with open(full, "rb") as f:
                 h.update(f.read())
     return h.hexdigest()[:12]

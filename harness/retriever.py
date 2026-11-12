@@ -4,6 +4,7 @@
 （以 # 開頭的標題行不算段落。）
 檢索：純 Python 的 BM25，中文用「單字＋相鄰兩字」切詞，CPU 即可執行，不需要額外套件。
 """
+import json
 import math
 import os
 import re
@@ -39,23 +40,30 @@ def load_docs(doc_dir):
 
 
 def load_skills(skill_dir):
-    """回傳 {skill_id: {id, text, output_regex}}"""
+    """回傳 {skill_id: {id, text, output_regex, checks, path}}（包含子資料夾，例如 skills/tulu/）"""
     skills = {}
-    for name in sorted(os.listdir(skill_dir)):
-        if not name.endswith(".md"):
-            continue
-        with open(os.path.join(skill_dir, name), encoding="utf-8") as f:
-            raw = f.read()
-        sid = re.search(r"skill_id:\s*(\S+)", raw)
-        rgx = re.search(r"output_regex:\s*(.+?)\s*-->", raw)
-        skill_id = sid.group(1) if sid else name[:-3]
-        # 給模型看的內容不含 HTML 註解（那是給驗證器用的中繼資料）
-        visible = re.sub(r"<!--.*?-->\n?", "", raw).strip()
-        skills[skill_id] = {
-            "id": skill_id,
-            "text": visible,
-            "output_regex": rgx.group(1) if rgx else None,
-        }
+    for root, _, files in sorted(os.walk(skill_dir)):
+        for name in sorted(files):
+            if not name.endswith(".md"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as f:
+                raw = f.read()
+            sid = re.search(r"skill_id:\s*(\S+)", raw)
+            rgx = re.search(r"output_regex:\s*(.+?)\s*-->", raw)
+            chk = re.search(r"<!--\s*checks:\s*(.*?)\s*-->", raw, re.S)
+            skill_id = sid.group(1) if sid else name[:-3]
+            if skill_id in skills:
+                raise ValueError(f"skill_id 重複：{skill_id}")
+            # 給模型看的內容不含 HTML 註解（那是給驗證器用的中繼資料）
+            visible = re.sub(r"<!--.*?-->\n?", "", raw).strip()
+            skills[skill_id] = {
+                "id": skill_id,
+                "text": visible,
+                "output_regex": rgx.group(1) if rgx else None,
+                "checks": json.loads(chk.group(1)) if chk else None,
+                "path": os.path.relpath(path, skill_dir),
+            }
     return skills
 
 

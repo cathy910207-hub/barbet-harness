@@ -1,6 +1,6 @@
 {
-  "verifier": "verify_v0.2",
-  "generated_at": "2026-11-12T14:40:39+08:00",
+  "verifier": "verify_v0.3",
+  "generated_at": "2026-11-12T14:53:19+08:00",
   "counts": {
     "candidates": 10,
     "rejected": 0,
@@ -31,19 +31,20 @@
       "intended_use": "規則執行（rule_following）題目來源；參考回答不作為標準答案"
     }
   ],
+  "import_logs": {},
   "orphan_corrections": [],
   "file_hashes": {
     "inputs": {
-      "tasks_draft": "7072445563c2",
+      "tasks_draft.jsonl": "7072445563c2",
       "corrections": "b9a1c6aabbb3",
       "docs": "cc372c0f9483",
       "skills": "6f9e69f46120",
       "tool_schema": "ff507a1c03b8",
       "mock_db": "d1d567f56935",
-      "verify.py": "6ee259d0405e"
+      "verify.py": "36baf71ee8a6"
     },
     "outputs": {
-      "candidates": "f867afbb9bf4",
+      "candidates": "d148a0736144",
       "rejected": "e3b0c44298fc"
     }
   }

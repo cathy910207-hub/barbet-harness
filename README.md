@@ -11,7 +11,11 @@
 
 ```bash
 python verify.py                                               # 驗證資料：產生 candidates／rejected／manifest
+python importers/tulu_import.py --n 23                         # 匯入 Tülu 規則題（需連網，建議在 Colab 執行）
+python tests/test_rule_checks.py                               # 測試規則檢查器（每種規則都有通過／失敗案例）
+python tests/test_tulu_parse.py                                # 測試 Tülu 題目解析器
 python tests/test_verify.py                                    # 測試驗證器本身（應顯示 25/25 通過）
+python tests/test_tulu_integration.py                          # 匯入 → 驗證 → A/B/C 整合測試
 python tests/test_pipeline.py                                  # 檢查 A/B/C 流程（應顯示「全部檢查通過」）
 python run_experiment.py --dummy-script tests/dummy_script.json # 用假模型劇本跑 A/B/C
 ```
@@ -28,6 +32,17 @@ python run_experiment.py --dummy-script tests/dummy_script.json # 用假模型�
 | `verify.py` | 可重複執行的自動驗證程式 |
 | `tests/` | 驗證器的正確與錯誤案例（`test_verify.py`）、流程測試（`test_pipeline.py`） |
 | `report.md` | 實際結果、已知限制與下一步計畫 |
+
+## Tülu 規則執行題
+
+`importers/tulu_import.py` 只收錄「每一條規則都能解析、也都能用程式檢查」的題目，其餘放進 `data/raw/tulu_rejected.jsonl` 並寫明原因：
+
+- 標籤中有不支援的規則類型
+- 解析不到參數，或解析出互相衝突的值
+- 題目中有標籤沒列出的規則（資料集的標籤有時會漏）
+- 逐句／逐段規則、特定語言、佔位符等目前無法驗證的要求
+
+每題會產生一個 skill（`data/skills/tulu/`），把規則逐條列出給模型看；同一份規則也是評分與 C 組回饋的依據。資料集的參考回答**不作為標準答案**，只記錄它是否通過規則，用來判斷解析是否合理。
 
 ## 資料流程：原始資料不會被覆寫
 
@@ -83,15 +98,21 @@ harness/
   retriever.py         文件切段、BM25 檢索、skill 載入
   tools.py             模擬工具、schema 驗證
   verifier.py          執行期驗證（不讀標準答案，C 組回饋用）
+  rule_checks.py       可用程式驗證的寫作規則（逗號、大小寫、字數、句數、段落、條列、關鍵字……）
   grader.py            評分（唯一讀標準答案的地方，結果不回饋給模型；⚠️ 內部評分，非主線正式評分）
   metrics.py           統計與報告
 verify.py              資料驗證（產生 candidates／rejected／manifest）
+importers/
+  tulu_import.py       Tülu 3 指令遵循資料匯入（固定 revision、固定種子、解析規則參數）
 report.md              交付報告
 data/
-  raw/                 原始草稿與修正紀錄（不覆寫）
+  raw/                 原始草稿與修正紀錄（不覆寫）；Tülu 匯入結果 tulu_draft／tulu_rejected／tulu_import_log
   candidates.jsonl  rejected.jsonl  manifest.json
-  docs/  skills/  tools/
+  docs/  skills/（skills/tulu/ 為匯入產生）  tools/
 tests/
+  test_rule_checks.py  規則檢查器測試
+  test_tulu_parse.py   Tülu 解析器測試
+  test_tulu_integration.py  Tülu 整合測試（fixtures/ 為仿造資料）
   test_verify.py       驗證器測試（正確與錯誤案例）
   test_pipeline.py     流程檢查
   dummy_script.json    假模型劇本

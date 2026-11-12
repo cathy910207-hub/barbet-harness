@@ -29,9 +29,10 @@ sys.path.insert(0, BASE)
 from harness.grader import normalize  # noqa: E402
 from harness.io_utils import dir_hash, file_hash, read_json, read_jsonl, write_json  # noqa: E402
 from harness.retriever import load_docs, load_skills  # noqa: E402
+from harness.rule_checks import validate_rule  # noqa: E402
 from harness.tools import ToolBox  # noqa: E402
 
-VERIFY_VERSION = "verify_v0.2"
+VERIFY_VERSION = "verify_v0.3"
 REQUIRED_FIELDS = {"id": str, "task_family": str, "group_id": str, "source": dict, "question": str,
                    "answer": dict, "constraints": list, "verification": dict, "split": str}
 TASK_FAMILIES = {"doc_retrieval", "rule_following", "tool_selection", "interpret_fix"}
@@ -71,6 +72,10 @@ def check_structure(row, res):
     for k in ("type", "license", "generation_method"):
         if not row["source"].get(k):
             errs.append(f"source 缺少 {k}")
+    if row["source"].get("type") == "public_dataset":
+        for k in ("name", "revision", "row_id"):
+            if not row["source"].get(k):
+                errs.append(f"公開資料集來源缺少 {k}")
     if not row["constraints"] or not all(isinstance(c, str) and c for c in row["constraints"]):
         errs.append("constraints 必須是非空的文字清單")
     if row["verification"].get("method") not in METHODS:
@@ -254,11 +259,52 @@ def v_missing_required_param(row, res, p):
     return errs
 
 
+NUM_WORDS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+             "sixteen seventeen eighteen nineteen twenty").split()
+
+
+def _number_in_text(n, text):
+    words = [str(n)] + ([NUM_WORDS[n]] if n < len(NUM_WORDS) else [])
+    return any(re.search(rf"(?<![\d]){re.escape(w)}(?![\d])", text, re.I) for w in words)
+
+
+def v_rule_checks(row, res, p):
+    """規則題（例如 Tülu）：規則格式合法、skill 與答案的規則一致、規則參數都能在題目中找到出處。"""
+    errs = []
+    rules = row["answer"].get("rules")
+    if row["answer"].get("expect") != "rules" or not rules:
+        return ["answer 應為 expect=rules，且 rules 不可為空"]
+    for r in rules:
+        errs += validate_rule(r)
+    sid = row.get("context", {}).get("skill_id")
+    skill = res.skills.get(sid)
+    if not skill:
+        errs.append(f"找不到 skill：{sid}")
+    elif skill.get("checks") != rules:
+        errs.append("skill 檔中的規則與 answer.rules 不一致")
+    q = row["question"]
+    for r in rules:
+        prm = r.get("params", {})
+        for k in ("keyword", "phrase", "word"):
+            if k in prm and prm[k].lower() not in q.lower():
+                errs.append(f"{r['type']} 的 {k}「{prm[k]}」在題目中找不到出處")
+        for kw in prm.get("keywords", []):
+            if kw.lower() not in q.lower():
+                errs.append(f"{r['type']} 的關鍵字「{kw}」在題目中找不到出處")
+        for k in ("n", "n_paragraphs"):
+            if isinstance(prm.get(k), int) and not _number_in_text(prm[k], q):
+                errs.append(f"{r['type']} 的數字 {prm[k]} 在題目中找不到出處")
+        if "letter" in prm and not re.search(rf"[\"“'‘]{prm['letter']}[\"”'’]|letter\s+{prm['letter']}\b", q, re.I):
+            errs.append(f"字母「{prm['letter']}」在題目中找不到出處")
+    return errs
+
+
 METHODS = {
     "doc_evidence": v_doc_evidence, "doc_contradiction": v_doc_contradiction, "doc_absent": v_doc_absent,
     "recompute_refund": v_recompute_refund, "execute_tool": v_execute_tool,
     "execute_tool_expect_failure": v_execute_tool_expect_failure,
     "no_applicable_tool": v_no_applicable_tool, "missing_required_param": v_missing_required_param,
+    "rule_checks": v_rule_checks,
 }
 
 
@@ -344,14 +390,15 @@ def check_groups(rows):
 
 
 # ---------------------------------------------------------------- 主流程
-def run(drafts, corrections, res):
+def run(drafts, corrections, res, import_rejected=()):
     corr_by = {}
     for c in corrections:
         corr_by.setdefault(c["task_id"], []).append(c)
     known_ids = {d.get("id") for d in drafts}
     orphan = [c["correction_id"] for c in corrections if c["task_id"] not in known_ids]
 
-    seen, stage1, rejected = set(), [], []
+    seen, stage1 = set(), []
+    rejected = [dict(r) for r in import_rejected]  # 匯入階段就淘汰的資料（例如 Tülu 解析失敗）
     for d in drafts:
         did = d.get("id")
         if did in seen:
@@ -381,7 +428,9 @@ def run(drafts, corrections, res):
 def build_manifest(paths, candidates, rejected, orphan):
     sources = {}
     for r in candidates + rejected:
-        s = r.get("source", {})
+        if "source" not in r:
+            continue  # 匯入階段淘汰的原始資料列，來源記錄在 import_logs
+        s = r["source"]
         key = s.get("type", "unknown") + "|" + str(s.get("name", ""))
         e = sources.setdefault(key, {k: s.get(k) for k in ("type", "name", "revision", "license", "generation_method", "created_by")})
         e["count"] = e.get("count", 0) + 1
@@ -391,16 +440,18 @@ def build_manifest(paths, candidates, rejected, orphan):
         "counts": {"candidates": len(candidates), "rejected": len(rejected),
                    "by_task_family": {f: sum(r["task_family"] == f for r in candidates) for f in sorted(TASK_FAMILIES)}},
         "sources": list(sources.values()),
-        "planned_sources": [{
+        "planned_sources": [] if any(s.get("type") == "public_dataset" for s in sources.values()) else [{
             "name": "allenai/tulu-3-sft-personas-instruction-following",
             "revision": "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e",
             "license": "ODC-BY",
             "status": "主線已選定，尚未匯入",
             "intended_use": "規則執行（rule_following）題目來源；參考回答不作為標準答案",
         }],
+        "import_logs": paths.get("import_logs", {}),
         "orphan_corrections": orphan,
         "file_hashes": {
-            "inputs": {"tasks_draft": file_hash(paths["drafts"]), "corrections": file_hash(paths["corrections"]),
+            "inputs": {**{os.path.basename(f): file_hash(f) for f in paths["draft_files"]},
+                       "corrections": file_hash(paths["corrections"]),
                        "docs": dir_hash(os.path.join(BASE, "data/docs")),
                        "skills": dir_hash(os.path.join(BASE, "data/skills")),
                        "tool_schema": file_hash(os.path.join(BASE, "data/tools/schema.json")),
@@ -421,19 +472,34 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
-    paths = {"drafts": os.path.join(BASE, "data/raw/tasks_draft.jsonl"),
+    raw = os.path.join(BASE, "data/raw")
+    draft_files = [os.path.join(raw, f) for f in ("tasks_draft.jsonl", "tulu_draft.jsonl") if os.path.exists(os.path.join(raw, f))]
+    paths = {"draft_files": draft_files,
              "corrections": os.path.join(BASE, "data/raw/corrections.jsonl"),
              "candidates": os.path.join(BASE, "data/candidates.jsonl"),
              "rejected": os.path.join(BASE, "data/rejected.jsonl"),
              "manifest": os.path.join(BASE, "data/manifest.json")}
     res = Resources()
-    candidates, rejected, orphan = run(read_jsonl(paths["drafts"]), read_jsonl(paths["corrections"]), res)
+    drafts = [r for f in draft_files for r in read_jsonl(f)]
+    imp_rej_path = os.path.join(raw, "tulu_rejected.jsonl")
+    import_rejected = read_jsonl(imp_rej_path) if os.path.exists(imp_rej_path) else []
+    log_path = os.path.join(raw, "tulu_import_log.json")
+    if os.path.exists(log_path):
+        paths["import_logs"] = {"tulu": read_json(log_path)}
+    candidates, rejected, orphan = run(drafts, read_jsonl(paths["corrections"]), res, import_rejected)
     _write_jsonl(paths["candidates"], candidates)
     _write_jsonl(paths["rejected"], rejected)
     write_json(paths["manifest"], build_manifest(paths, candidates, rejected, orphan))
 
     print(f"通過：{len(candidates)} 筆　淘汰：{len(rejected)} 筆")
+    stages = {}
     for r in rejected:
+        stages[r.get("stage") or r.get("reject_stage")] = stages.get(r.get("stage") or r.get("reject_stage"), 0) + 1
+    if stages:
+        print("  淘汰階段：" + "、".join(f"{k} {v} 筆" for k, v in stages.items()))
+    for r in rejected:
+        if r.get("stage") == "import":
+            continue  # 匯入階段的淘汰原因統計在 tulu_import_log.json
         print(f"  ✗ {r.get('id')}（{r['reject_stage']}）：" + "；".join(r["reject_reasons"]))
     for r in candidates:
         for rev in r["revisions"]:

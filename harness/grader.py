@@ -7,6 +7,8 @@
 """
 import re
 
+from .rule_checks import check_all
+
 NOT_FOUND_WORDS = ["找不到", "沒有提到", "未提及", "沒有相關", "無相關", "無法從文件", "文件中沒有"]
 CONTRA_WORDS = ["矛盾", "不一致", "衝突", "說法不同", "不同的說法"]
 
@@ -87,6 +89,9 @@ def grade(task, outcome, toolbox, valid_chunk_ids):
     if cat == "rule_following":
         if ans is None:
             return _r(False, "no_answer")
+        if exp == "rules":
+            violations = check_all(ans, gold["rules"])
+            return _r(not violations, "rule_violation:" + violations[0][0] if violations else None)
         return _r(normalize(gold["answer_exact"]) in normalize(ans), "wrong_answer")
 
     # ---------- 工具選擇 / 解讀與修正 ----------
