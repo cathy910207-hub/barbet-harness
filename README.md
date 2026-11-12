@@ -11,11 +11,8 @@
 
 ```bash
 python verify.py                                               # 驗證資料：產生 candidates／rejected／manifest
-python importers/tulu_import.py --n 23                         # 匯入 Tülu 規則題（需連網，建議在 Colab 執行）
 python tests/test_rule_checks.py                               # 測試規則檢查器（每種規則都有通過／失敗案例）
-python tests/test_tulu_parse.py                                # 測試 Tülu 題目解析器
-python tests/test_verify.py                                    # 測試驗證器本身（應顯示 25/25 通過）
-python tests/test_tulu_integration.py                          # 匯入 → 驗證 → A/B/C 整合測試
+python tests/test_verify.py                                    # 測試驗證器本身（應顯示 29/29 通過）
 python tests/test_pipeline.py                                  # 檢查 A/B/C 流程（應顯示「全部檢查通過」）
 python run_experiment.py --dummy-script tests/dummy_script.json # 用假模型劇本跑 A/B/C
 ```
@@ -33,16 +30,21 @@ python run_experiment.py --dummy-script tests/dummy_script.json # 用假模型�
 | `tests/` | 驗證器的正確與錯誤案例（`test_verify.py`）、流程測試（`test_pipeline.py`） |
 | `report.md` | 實際結果、已知限制與下一步計畫 |
 
-## Tülu 規則執行題
+## 規則執行題：換 skill，答案就要跟著改變
 
-`importers/tulu_import.py` 只收錄「每一條規則都能解析、也都能用程式檢查」的題目，其餘放進 `data/raw/tulu_rejected.jsonl` 並寫明原因：
+25 題規則執行題涵蓋 6 種業務規則（退款、運費、會員折扣、點數、延遲出貨補償、分期付款），共 13 份 skill。
+每一題都屬於一個對照組：**同一個問題、搭配內容不同的 skill**，正確答案必須不同，並共用同一個 `group_id`。
 
-- 標籤中有不支援的規則類型
-- 解析不到參數，或解析出互相衝突的值
-- 題目中有標籤沒列出的規則（資料集的標籤有時會漏）
-- 逐句／逐段規則、特定語言、佔位符等目前無法驗證的要求
+| 對照組 | 題目 | skill 版本 |
+|---|---|---|
+| 退款（2 組） | 已拆封商品 1250 元／860 元 | v1 打 9 折、v2 打 8 折再扣 30 元、v3 已拆封不退款 |
+| 運費（2 組） | 1200 元寄台北／650 元寄澎湖 | v1 滿 1000 免運、v2 滿 1500 免運，離島加價不同 |
+| 會員折扣（2 組） | 金卡 1580 元／一般會員 2400 元 | v1、v2 折扣率與一般會員優惠不同 |
+| 點數（2 組） | 非生日月 1280 元／生日月 730 元 | v1 每 100 元 1 點、生日加倍；v2 每 50 元 1 點、生日加贈 50 點 |
+| 延遲補償（2 組） | 延遲 2 天／7 天 | v1 每天 20 元上限 100；v2 超過 3 天一次補 50 元 |
+| 分期（2 組） | 9000 元 6 期／3000 元 3 期 | v1、v2 手續費率不同 |
 
-每題會產生一個 skill（`data/skills/tulu/`），把規則逐條列出給模型看；同一份規則也是評分與 C 組回饋的依據。資料集的參考回答**不作為標準答案**，只記錄它是否通過規則，用來判斷解析是否合理。
+每份 skill 在 `skill_reference.py` 都有一份參考實作。`verify.py` 會用它重算答案，並檢查 skill 文字裡真的寫著同樣的數字。另外會檢查同一組的 skill **內容**確實不同：只換名字的 skill 不算新的 skill。
 
 ## 資料流程：原始資料不會被覆寫
 
@@ -102,17 +104,15 @@ harness/
   grader.py            評分（唯一讀標準答案的地方，結果不回饋給模型；⚠️ 內部評分，非主線正式評分）
   metrics.py           統計與報告
 verify.py              資料驗證（產生 candidates／rejected／manifest）
-importers/
-  tulu_import.py       Tülu 3 指令遵循資料匯入（固定 revision、固定種子、解析規則參數）
+skill_reference.py     每份 skill 的參考實作（verify.py 用來重算規則題答案）
 report.md              交付報告
 data/
-  raw/                 原始草稿與修正紀錄（不覆寫）；Tülu 匯入結果 tulu_draft／tulu_rejected／tulu_import_log
+  raw/                 原始草稿（tasks_draft：文件／工具題；rules_draft：規則題）與修正紀錄（不覆寫）
   candidates.jsonl  rejected.jsonl  manifest.json
-  docs/  skills/（skills/tulu/ 為匯入產生）  tools/
+  docs/  skills/  tools/
 tests/
   test_rule_checks.py  規則檢查器測試
-  test_tulu_parse.py   Tülu 解析器測試
-  test_tulu_integration.py  Tülu 整合測試（fixtures/ 為仿造資料）
+  test_rule_checks.py  格式規則檢查器測試（skill 若規定輸出格式可用）
   test_verify.py       驗證器測試（正確與錯誤案例）
   test_pipeline.py     流程檢查
   dummy_script.json    假模型劇本

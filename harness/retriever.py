@@ -40,7 +40,7 @@ def load_docs(doc_dir):
 
 
 def load_skills(skill_dir):
-    """回傳 {skill_id: {id, text, output_regex, checks, path}}（包含子資料夾，例如 skills/tulu/）"""
+    """回傳 {skill_id: {id, text, output_regex, checks, path}}（包含子資料夾）"""
     skills = {}
     for root, _, files in sorted(os.walk(skill_dir)):
         for name in sorted(files):

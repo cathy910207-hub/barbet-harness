@@ -1,7 +1,7 @@
 """自動驗證程式：把原始草稿驗證成候選資料。
 
 輸入（原始資料，永遠不會被覆寫）：
-  data/raw/tasks_draft.jsonl   題目草稿
+  data/raw/*_draft.jsonl       題目草稿（tasks_draft：文件／工具題；rules_draft：規則題）
   data/raw/corrections.jsonl   修正紀錄（原答案、修正內容、原因）
 輸出：
   data/candidates.jsonl        通過檢查的候選資料
@@ -9,7 +9,7 @@
   data/manifest.json           來源、revision、授權、生成方法、檔案雜湊
 
 驗證原則：AI 起草的答案一律不直接採信，每一題都用程式「獨立重算或重查」一次：
-  文件題 → 重新到文件庫找證據；規則題 → 用參考實作重算；工具題 → 依 schema 檢查並實際執行工具。
+  文件題 → 重新到文件庫找證據；規則題 → 用 skill_reference.py 重算；工具題 → 依 schema 檢查並實際執行工具。
 
 用法：python verify.py            （可重複執行，結果相同）
       python verify.py --strict   （有任何資料被淘汰就回傳非 0，方便放進自動檢查）
@@ -17,11 +17,11 @@
 import argparse
 import copy
 import datetime
+import glob
 import json
 import os
 import re
 import sys
-from decimal import ROUND_HALF_UP, Decimal
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
@@ -29,20 +29,16 @@ sys.path.insert(0, BASE)
 from harness.grader import normalize  # noqa: E402
 from harness.io_utils import dir_hash, file_hash, read_json, read_jsonl, write_json  # noqa: E402
 from harness.retriever import load_docs, load_skills  # noqa: E402
-from harness.rule_checks import validate_rule  # noqa: E402
+import skill_reference  # noqa: E402
 from harness.tools import ToolBox  # noqa: E402
 
-VERIFY_VERSION = "verify_v0.3"
+VERIFY_VERSION = "verify_v0.4"
 REQUIRED_FIELDS = {"id": str, "task_family": str, "group_id": str, "source": dict, "question": str,
                    "answer": dict, "constraints": list, "verification": dict, "split": str}
 TASK_FAMILIES = {"doc_retrieval", "rule_following", "tool_selection", "interpret_fix"}
 
-# 規則題的參考實作。每新增一個 skill，就要在這裡寫一份「獨立於 AI 草稿」的計算規則，
-# 並且 verify 會檢查 skill 文字裡真的寫著同樣的數字，避免兩邊不一致。
-REFUND_REFERENCE = {
-    "skill_refund_v1": {"multiplier": "0.9", "fee": 0},
-    "skill_refund_v2": {"multiplier": "0.8", "fee": 30},
-}
+# 規則題的參考實作在 skill_reference.py：每份 skill 都有一份獨立於 AI 草稿的計算程式，
+# verify 會用它重算答案，並檢查 skill 文字裡真的寫著同樣的數字。
 
 
 class Resources:
@@ -164,25 +160,29 @@ def v_doc_absent(row, res, p):
     return errs
 
 
-def v_recompute_refund(row, res, p):
+def v_recompute_skill(row, res, p):
+    """規則題：用 skill_reference.py 的參考實作重算答案，並核對 skill 文字與參考實作一致。"""
     errs = []
     sid = row.get("context", {}).get("skill_id")
-    if sid not in REFUND_REFERENCE:
+    if sid not in skill_reference.SKILLS:
         return [f"skill {sid} 沒有參考實作，無法獨立驗證"]
-    ref = REFUND_REFERENCE[sid]
     skill_text = res.skills[sid]["text"]
-    if ref["multiplier"] not in skill_text:
-        errs.append(f"skill 文字中找不到倍率 {ref['multiplier']}，參考實作與 skill 不一致")
-    if ref["fee"] and f"{ref['fee']} 元" not in skill_text:
-        errs.append(f"skill 文字中找不到手續費 {ref['fee']} 元，參考實作與 skill 不一致")
-    price = Decimal(str(p["price"]))
-    value = price if not p.get("opened") else price * Decimal(ref["multiplier"]) - ref["fee"]
-    expected = f"退款金額：{int(value.quantize(Decimal('1'), rounding=ROUND_HALF_UP))} 元"
+    for needle in skill_reference.SKILLS[sid]["must_appear"]:
+        if needle not in skill_text:
+            errs.append(f"skill 文字中找不到「{needle}」，參考實作與 skill 不一致")
+    inputs = p.get("inputs") or {"price": p["price"], "opened": p["opened"]}  # 舊題目（rule_001/002）的參數格式
+    try:
+        expected = skill_reference.compute(sid, inputs)
+    except (KeyError, TypeError) as e:
+        return errs + [f"參考實作無法計算（輸入參數有誤：{e}）"]
     got = row["answer"].get("answer_exact")
     if normalize(got) != normalize(expected):
         errs.append(f"答案與重算結果不符：草稿為「{got}」，重算為「{expected}」")
     if got and normalize(got) in normalize(row["question"]):
         errs.append("答案直接出現在題目中")
+    rgx = res.skills[sid].get("output_regex")
+    if rgx and got and not re.search(rgx, got):
+        errs.append("答案不符合 skill 規定的輸出格式")
     return errs
 
 
@@ -259,52 +259,11 @@ def v_missing_required_param(row, res, p):
     return errs
 
 
-NUM_WORDS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
-             "sixteen seventeen eighteen nineteen twenty").split()
-
-
-def _number_in_text(n, text):
-    words = [str(n)] + ([NUM_WORDS[n]] if n < len(NUM_WORDS) else [])
-    return any(re.search(rf"(?<![\d]){re.escape(w)}(?![\d])", text, re.I) for w in words)
-
-
-def v_rule_checks(row, res, p):
-    """規則題（例如 Tülu）：規則格式合法、skill 與答案的規則一致、規則參數都能在題目中找到出處。"""
-    errs = []
-    rules = row["answer"].get("rules")
-    if row["answer"].get("expect") != "rules" or not rules:
-        return ["answer 應為 expect=rules，且 rules 不可為空"]
-    for r in rules:
-        errs += validate_rule(r)
-    sid = row.get("context", {}).get("skill_id")
-    skill = res.skills.get(sid)
-    if not skill:
-        errs.append(f"找不到 skill：{sid}")
-    elif skill.get("checks") != rules:
-        errs.append("skill 檔中的規則與 answer.rules 不一致")
-    q = row["question"]
-    for r in rules:
-        prm = r.get("params", {})
-        for k in ("keyword", "phrase", "word"):
-            if k in prm and prm[k].lower() not in q.lower():
-                errs.append(f"{r['type']} 的 {k}「{prm[k]}」在題目中找不到出處")
-        for kw in prm.get("keywords", []):
-            if kw.lower() not in q.lower():
-                errs.append(f"{r['type']} 的關鍵字「{kw}」在題目中找不到出處")
-        for k in ("n", "n_paragraphs"):
-            if isinstance(prm.get(k), int) and not _number_in_text(prm[k], q):
-                errs.append(f"{r['type']} 的數字 {prm[k]} 在題目中找不到出處")
-        if "letter" in prm and not re.search(rf"[\"“'‘]{prm['letter']}[\"”'’]|letter\s+{prm['letter']}\b", q, re.I):
-            errs.append(f"字母「{prm['letter']}」在題目中找不到出處")
-    return errs
-
-
 METHODS = {
     "doc_evidence": v_doc_evidence, "doc_contradiction": v_doc_contradiction, "doc_absent": v_doc_absent,
-    "recompute_refund": v_recompute_refund, "execute_tool": v_execute_tool,
+    "recompute_refund": v_recompute_skill, "recompute_skill": v_recompute_skill, "execute_tool": v_execute_tool,
     "execute_tool_expect_failure": v_execute_tool_expect_failure,
     "no_applicable_tool": v_no_applicable_tool, "missing_required_param": v_missing_required_param,
-    "rule_checks": v_rule_checks,
 }
 
 
@@ -389,16 +348,38 @@ def check_groups(rows):
     return out
 
 
+def _skill_body(text):
+    """skill 內容去掉標題行（標題可能只差名字），用來判斷兩份 skill 是否只是換名字。"""
+    return normalize("\n".join(l for l in text.splitlines() if not l.startswith("#")))
+
+
+def check_skill_variants(rows, res):
+    """同一題換 skill 時，skill 的「內容」必須不同；只換名字不算新的 skill。"""
+    out = {}
+    by_q = {}
+    for r in rows:
+        sid = r.get("context", {}).get("skill_id")
+        if sid in res.skills:
+            by_q.setdefault((r["group_id"], normalize(r["question"])), []).append((r["id"], sid))
+    for items in by_q.values():
+        seen = {}
+        for rid, sid in items:
+            body = _skill_body(res.skills[sid]["text"])
+            if body in seen and seen[body][1] != sid:
+                out.setdefault(rid, []).append(f"skill {sid} 與 {seen[body][1]} 內容相同，只是換了名字，不算新的 skill")
+            seen.setdefault(body, (rid, sid))
+    return out
+
+
 # ---------------------------------------------------------------- 主流程
-def run(drafts, corrections, res, import_rejected=()):
+def run(drafts, corrections, res):
     corr_by = {}
     for c in corrections:
         corr_by.setdefault(c["task_id"], []).append(c)
     known_ids = {d.get("id") for d in drafts}
     orphan = [c["correction_id"] for c in corrections if c["task_id"] not in known_ids]
 
-    seen, stage1 = set(), []
-    rejected = [dict(r) for r in import_rejected]  # 匯入階段就淘汰的資料（例如 Tülu 解析失敗）
+    seen, stage1, rejected = set(), [], []
     for d in drafts:
         did = d.get("id")
         if did in seen:
@@ -414,6 +395,8 @@ def run(drafts, corrections, res, import_rejected=()):
             stage1.append(row)
 
     group_errs = check_groups(stage1)
+    for k, v in check_skill_variants(stage1, res).items():
+        group_errs.setdefault(k, []).extend(v)
     candidates = []
     for row in stage1:
         if row["id"] in group_errs:
@@ -428,9 +411,7 @@ def run(drafts, corrections, res, import_rejected=()):
 def build_manifest(paths, candidates, rejected, orphan):
     sources = {}
     for r in candidates + rejected:
-        if "source" not in r:
-            continue  # 匯入階段淘汰的原始資料列，來源記錄在 import_logs
-        s = r["source"]
+        s = r.get("source", {})
         key = s.get("type", "unknown") + "|" + str(s.get("name", ""))
         e = sources.setdefault(key, {k: s.get(k) for k in ("type", "name", "revision", "license", "generation_method", "created_by")})
         e["count"] = e.get("count", 0) + 1
@@ -440,14 +421,6 @@ def build_manifest(paths, candidates, rejected, orphan):
         "counts": {"candidates": len(candidates), "rejected": len(rejected),
                    "by_task_family": {f: sum(r["task_family"] == f for r in candidates) for f in sorted(TASK_FAMILIES)}},
         "sources": list(sources.values()),
-        "planned_sources": [] if any(s.get("type") == "public_dataset" for s in sources.values()) else [{
-            "name": "allenai/tulu-3-sft-personas-instruction-following",
-            "revision": "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e",
-            "license": "ODC-BY",
-            "status": "主線已選定，尚未匯入",
-            "intended_use": "規則執行（rule_following）題目來源；參考回答不作為標準答案",
-        }],
-        "import_logs": paths.get("import_logs", {}),
         "orphan_corrections": orphan,
         "file_hashes": {
             "inputs": {**{os.path.basename(f): file_hash(f) for f in paths["draft_files"]},
@@ -473,7 +446,7 @@ def main():
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
     raw = os.path.join(BASE, "data/raw")
-    draft_files = [os.path.join(raw, f) for f in ("tasks_draft.jsonl", "tulu_draft.jsonl") if os.path.exists(os.path.join(raw, f))]
+    draft_files = sorted(glob.glob(os.path.join(raw, "*_draft.jsonl")))
     paths = {"draft_files": draft_files,
              "corrections": os.path.join(BASE, "data/raw/corrections.jsonl"),
              "candidates": os.path.join(BASE, "data/candidates.jsonl"),
@@ -481,25 +454,13 @@ def main():
              "manifest": os.path.join(BASE, "data/manifest.json")}
     res = Resources()
     drafts = [r for f in draft_files for r in read_jsonl(f)]
-    imp_rej_path = os.path.join(raw, "tulu_rejected.jsonl")
-    import_rejected = read_jsonl(imp_rej_path) if os.path.exists(imp_rej_path) else []
-    log_path = os.path.join(raw, "tulu_import_log.json")
-    if os.path.exists(log_path):
-        paths["import_logs"] = {"tulu": read_json(log_path)}
-    candidates, rejected, orphan = run(drafts, read_jsonl(paths["corrections"]), res, import_rejected)
+    candidates, rejected, orphan = run(drafts, read_jsonl(paths["corrections"]), res)
     _write_jsonl(paths["candidates"], candidates)
     _write_jsonl(paths["rejected"], rejected)
     write_json(paths["manifest"], build_manifest(paths, candidates, rejected, orphan))
 
     print(f"通過：{len(candidates)} 筆　淘汰：{len(rejected)} 筆")
-    stages = {}
     for r in rejected:
-        stages[r.get("stage") or r.get("reject_stage")] = stages.get(r.get("stage") or r.get("reject_stage"), 0) + 1
-    if stages:
-        print("  淘汰階段：" + "、".join(f"{k} {v} 筆" for k, v in stages.items()))
-    for r in rejected:
-        if r.get("stage") == "import":
-            continue  # 匯入階段的淘汰原因統計在 tulu_import_log.json
         print(f"  ✗ {r.get('id')}（{r['reject_stage']}）：" + "；".join(r["reject_reasons"]))
     for r in candidates:
         for rev in r["revisions"]:

@@ -15,7 +15,8 @@ from harness.grader import grade  # noqa: E402
 from harness.io_utils import read_jsonl  # noqa: E402
 
 RES = verify.Resources()
-DRAFTS = read_jsonl(os.path.join(BASE, "data/raw/tasks_draft.jsonl"))
+import glob  # noqa: E402
+DRAFTS = [r for f in sorted(glob.glob(os.path.join(BASE, "data/raw/*_draft.jsonl"))) for r in read_jsonl(f)]
 CORR = read_jsonl(os.path.join(BASE, "data/raw/corrections.jsonl"))
 CLEAN, _, _ = verify.run(DRAFTS, CORR, RES)        # 套用修正後、已通過驗證的版本
 BY_ID = {r["id"]: r for r in CLEAN}
@@ -48,9 +49,23 @@ def rejected_with(rows, keyword, corrections=()):
 
 
 # ======================= 正確案例：應該通過 =======================
-@case("正確：目前 10 題草稿＋修正紀錄全部通過")
+@case("正確：所有草稿＋修正紀錄全部通過，規則執行題共 25 題")
 def _():
-    assert len(CLEAN) == 10, f"只通過 {len(CLEAN)} 筆"
+    assert len(CLEAN) == len(DRAFTS), f"只通過 {len(CLEAN)}/{len(DRAFTS)} 筆"
+    n_rule = sum(r["task_family"] == "rule_following" for r in CLEAN)
+    assert n_rule == 25, f"規則執行題 {n_rule} 題"
+
+
+@case("正確：每一題規則題都屬於「換 skill 答案就改變」的對照組")
+def _():
+    groups = {}
+    for r in CLEAN:
+        if r["task_family"] == "rule_following":
+            groups.setdefault(r["group_id"], []).append(r)
+    for g, rs in groups.items():
+        assert len(rs) >= 2, f"{g} 只有 1 題，沒有對照版本"
+        assert len({r["context"]["skill_id"] for r in rs}) == len(rs), f"{g} 有重複的 skill"
+        assert len({r["answer"]["answer_exact"] for r in rs}) == len(rs), f"{g} 換 skill 後答案沒變"
 
 
 @case("正確：重複執行結果完全相同")
@@ -77,6 +92,35 @@ def _():
 def _():
     r = row("rule_002"); r["answer"]["answer_exact"] = "退款金額：1000 元"
     rejected_with([r], "重算")
+
+
+@case("錯誤：新 skill 的答案手算錯誤（已拆封不退款，卻寫 100 元）")
+def _():
+    r = row("rule_005"); r["answer"]["answer_exact"] = "退款金額：100 元"
+    rejected_with([r], "重算")
+
+
+@case("錯誤：skill 沒有參考實作，無法獨立驗證")
+def _():
+    RES.skills["skill_mystery_v1"] = {"id": "skill_mystery_v1", "text": "# skill\n1. 隨便算", "output_regex": None, "checks": None}
+    try:
+        r = row("rule_001"); r["context"]["skill_id"] = "skill_mystery_v1"
+        rejected_with([r], "沒有參考實作")
+    finally:
+        del RES.skills["skill_mystery_v1"]
+
+
+@case("錯誤：skill 只換名字、內容相同，不算新的 skill")
+def _():
+    v1 = RES.skills["skill_refund_v1"]
+    RES.skills["skill_refund_v9"] = dict(v1, id="skill_refund_v9", text=v1["text"].replace("退款金額計算規則", "退款規則（新版）"))
+    try:
+        a, b = row("rule_001"), row("rule_001")
+        b["id"], b["context"]["skill_id"] = "rule_renamed", "skill_refund_v9"
+        errs = verify.check_skill_variants([a, b], RES)
+        assert any("只是換了名字" in e for e in errs.get("rule_renamed", [])), f"沒有抓到：{errs}"
+    finally:
+        del RES.skills["skill_refund_v9"]
 
 
 @case("錯誤：skill 文字被改了，和參考實作不一致")
@@ -187,7 +231,7 @@ def _():
 @case("錯誤：修正紀錄的原值與資料不符（不可盲目覆寫）")
 def _():
     bad = dict(CORR[0], old=["999"])
-    d = copy.deepcopy(DRAFTS[0])
+    d = copy.deepcopy(next(x for x in DRAFTS if x["id"] == "doc_001"))
     rejected_with([d], "原值與目前資料不符", corrections=[bad])
 
 

@@ -1,13 +1,13 @@
 {
-  "verifier": "verify_v0.3",
-  "generated_at": "2026-11-12T14:53:19+08:00",
+  "verifier": "verify_v0.4",
+  "generated_at": "2026-11-12T15:07:04+08:00",
   "counts": {
-    "candidates": 10,
+    "candidates": 33,
     "rejected": 0,
     "by_task_family": {
       "doc_retrieval": 3,
       "interpret_fix": 2,
-      "rule_following": 2,
+      "rule_following": 25,
       "tool_selection": 3
     }
   },
@@ -17,34 +17,25 @@
       "name": null,
       "revision": null,
       "license": "本專案原創",
-      "generation_method": "人工設計情境，由 AI 起草題目與答案，答案須經 verify.py 以程式獨立驗證",
+      "generation_method": "人工設計業務規則 skill 與題目；答案由 AI 手算後寫入，須經 verify.py 以 skill_reference.py 獨立重算",
       "created_by": "Claude（AI 草稿）",
-      "count": 10
+      "count": 33
     }
   ],
-  "planned_sources": [
-    {
-      "name": "allenai/tulu-3-sft-personas-instruction-following",
-      "revision": "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e",
-      "license": "ODC-BY",
-      "status": "主線已選定，尚未匯入",
-      "intended_use": "規則執行（rule_following）題目來源；參考回答不作為標準答案"
-    }
-  ],
-  "import_logs": {},
   "orphan_corrections": [],
   "file_hashes": {
     "inputs": {
+      "rules_draft.jsonl": "16d2590e36f6",
       "tasks_draft.jsonl": "7072445563c2",
       "corrections": "b9a1c6aabbb3",
       "docs": "cc372c0f9483",
-      "skills": "6f9e69f46120",
+      "skills": "7700628bf285",
       "tool_schema": "ff507a1c03b8",
       "mock_db": "d1d567f56935",
-      "verify.py": "36baf71ee8a6"
+      "verify.py": "60f17d87bab9"
     },
     "outputs": {
-      "candidates": "d148a0736144",
+      "candidates": "f130b3319016",
       "rejected": "e3b0c44298fc"
     }
   }
